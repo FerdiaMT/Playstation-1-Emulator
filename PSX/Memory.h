@@ -15,6 +15,14 @@ public:
 
 	uint32_t read32(uint32_t addr);
 	uint32_t write32(uint32_t addr, uint32_t val);
+
+	uint16_t read16(uint32_t addr);
+	uint32_t write16(uint32_t addr, uint32_t val);
+
+	uint8_t read8(uint32_t addr);
+	uint32_t write8(uint32_t addr, uint32_t val);
+
+
 	bool load_bios(const char* file); // bool to check if bios loads
 
 };

@@ -63,8 +63,31 @@ void CPU::reset()
 
 void trigger_exception(CPU::Exception exc)
 {
-	std::cout<<"EXCEPTION, ";
+	std::cout << "EXCEPTION, ";
 }
+
+inline bool CPU::validWord(uint32_t word , Exception exc) // divisable by 4
+{
+	if (word & 0b00)
+	{
+		return true;
+	}
+
+	trigger_exception(exc);
+}
+
+inline bool CPU::validHalfWord(uint32_t word , Exception exc) // divisable by 2 
+{
+	if (word & 0b0)
+	{
+		return true;
+	}
+
+	trigger_exception(exc);
+}
+
+
+
 
 void CPU::execute_r_type(uint32_t instr)
 {
@@ -77,14 +100,16 @@ void CPU::execute_r_type(uint32_t instr)
 	uint8_t shamt = (instr >> 6 ) & 0b11111;
 	uint8_t funct = (instr      ) & 0b111111;
 
+	int64_t res{};
+	uint64_t bres{};
 	switch (funct)
-	{
-	case(0x00): break;//SSL
-	case(0x02): break;//SRL
-	case(0x03): break;//SRA
-	case(0x04): break;//SLLV
-	case(0x06): break;//SRLV
-	case(0x07): break;//SRAV
+	{ //homestuck 
+	case(0x00): reg[rd] = reg[rt] << shamt;break;//SLL UNSIGNED INTS USE LOGICAL SHIFT
+	case(0x02): reg[rd] = reg[rt] >> shamt;break;//SRL
+	case(0x03): reg[rd] = (uint32_t)((int32_t)reg[rt] >> shamt);break;//SRA  SIGNED INTS USE ARITHMETIC SHIFT
+	case(0x04): reg[rd] = reg[rt] << reg[rs];break;//SLLV
+	case(0x06): reg[rd] = reg[rt] >> reg[rs];break;//SRLV
+	case(0x07): reg[rd] = (uint32_t)((int32_t)reg[rt] >> reg[rs]);break;//SRAV
 	case(0x08): break;//JR
 	case(0x09): break;//JALR
 	case(0x0C): trigger_exception(Exception::Syscall); break;//SYSCALL
@@ -95,8 +120,12 @@ void CPU::execute_r_type(uint32_t instr)
 	case(0x12):  reg[rd] = lo; break;//MFLO
 	case(0x13): hi = reg[rt];//MTLO TODO CHECK
 
-	case(0x18): int64_t res = (int64_t)(int32_t)reg[rs] * (int64_t)(int32_t)reg[rt]; lo = (uint32_t)(res & 0xFFFFFFFF); hi = (uint32_t)((res >> 0xFF) & 0xFFFFFFFF); break;//MULT
-	case(0x19): uint64_t res = (uint64_t)reg[rs] * (uint64_t)reg[rt]; lo = (uint32_t)(res & 0xFFFFFFFF); hi = (uint32_t)((res >> 32) & 0xFFFFFFFF); break;//MULTU
+	case(0x18): 
+		res = (int64_t)(int32_t)reg[rs] * (int64_t)(int32_t)reg[rt]; 
+		lo = (uint32_t)(res & 0xFFFFFFFF); hi = (uint32_t)((res >> 0xFF) & 0xFFFFFFFF); break;//MULT
+	case(0x19): 
+		bres = (uint64_t)reg[rs] * (uint64_t)reg[rt]; 
+		lo = (uint32_t)(bres & 0xFFFFFFFF); hi = (uint32_t)((bres >> 32) & 0xFFFFFFFF); break;//MULTU
 
 	case(0x1A): // DIV
 	if (reg[rt] == 0)break;
@@ -111,12 +140,12 @@ void CPU::execute_r_type(uint32_t instr)
 	case(0x22): if ((int64_t)reg[rs] - (int64_t)reg[rt] < INT32_MIN) { trigger_exception(Exception::Overflow); }else { reg[rd] = reg[rs] - reg[rt]; } break; //SUB
 	case(0x23): reg[rd] = reg[rs] - reg[rt];//SUBU
 
-	case(0x24): break;//AND
-	case(0x25): break;//OR
-	case(0x26): break;//XOR
-	case(0x27): break;//NOR
-	case(0x2A): break;//SLT
-	case(0x2B): break;//SLTU
+	case(0x24): reg[rd] = reg[rs] & reg[rt]; break;//AND
+	case(0x25): reg[rd] = reg[rs] | reg[rt]; break;//OR
+	case(0x26): reg[rd] = reg[rs] ^ reg[rt];break;//XOR
+	case(0x27): reg[rd] = ~(reg[rs] ^ reg[rt]);break;//NOR TODO, DOUBLE CHECK THIS
+	case(0x2A): reg[rs] < reg[rt] ? reg[rd] = 1 : reg[rd] = 0; break;//SLT
+	case(0x2B): (uint32_t)reg[rs] < (uint32_t)reg[rt] ? reg[rd] = 1 : reg[rd] = 0;break;//SLTU
 
 	default:
 	printf("SPECIAL OXOOh OPCODE FAIL: did not implement function 0x%02X at PC 0x%08X\n", funct, pc); break;
@@ -133,6 +162,8 @@ void CPU::execute_i_type(uint32_t instr , uint8_t opcode)
 	uint8_t rt = (instr >> 16) & 0b11111;
 	uint8_t immed = (instr)    & 0b1111111111111111;
 
+	uint32_t addr{};
+
 	switch (opcode)
 	{
 	case(0x01): break; //BcondZ  
@@ -142,31 +173,61 @@ void CPU::execute_i_type(uint32_t instr , uint8_t opcode)
 	case(0x07): break; //BGTZ    
 		
 	case(0x08)://ADDI
-		uint32_t immedRead = memory->read32(immed);
-		if ((int64_t)reg[rs] + (int64_t)immedRead > INT32_MAX) { trigger_exception(Exception::Overflow); }
-		else { reg[rt] = reg[rs] + immedRead; } break;
+	addr = memory->read32(immed);
+		if ((int64_t)reg[rs] + (int64_t)addr > INT32_MAX) { trigger_exception(Exception::Overflow); }
+		else { reg[rt] = reg[rs] + addr; } break;
 	case(0x09): reg[rt] = reg[rs] + memory->read32(immed); break;  //ADDIU
 
-	case(0x0A): break; //SLTI  
-	case(0x0B): break; //SLTIU 
-	case(0x0C): break; //ANDI  
-	case(0x0D): break; //ORI   
-	case(0x0E): break; //XORI  
-	case(0x0F): break; //LUI   
+	case(0x0A): reg[rs] < immed ? reg[rt] = 1 : reg[rt] = 0; break; //SLTI  
+	case(0x0B): (int32_t)reg[rs] < (int32_t)immed ? reg[rt] = 1 : reg[rt] = 0; break; //SLTIU 
+	case(0x0C): reg[rt] = reg[rs] & immed; break; //ANDI  
+	case(0x0D): reg[rt] = reg[rs] | immed;break; //ORI   
+	case(0x0E): reg[rt] = reg[rs] ^ immed;break; //XORI  
+	case(0x0F): reg[rt] = (immed << 16) & 0xFF00;break; //LUI   
 
 	case(0x10): break; //COP0 
 	case(0x11): break; //COP1 
 	case(0x12): break; //COP2 
 	case(0x13): break; //COP3 
+
 	
 	//THE LOAD INSTRUCTIONS (REGISTER DELAY)
 	case(0x20): break; //LB   
+		addr = reg[rs] + immed;
+		load_delay_reg = rt;
+		load_delay_val = memory->read8(addr);break;
 	case(0x21): break; //LH
+		addr = reg[rs] + immed;
+		if (validHalfWord(addr , Exception::AddressErrorLoad))
+		{
+			load_delay_reg = rt;
+			load_delay_val = memory->read16(addr);
+		};break;
+
 	case(0x22): break; //LWL
-	case(0x23): break; //LW
+		addr = (reg[rs]>>16)&0xFF + immed;
+		if (validWord(addr, Exception::AddressErrorLoad))
+		{
+			load_delay_reg = rt;
+			load_delay_val = memory->read32(addr);
+		};break;
+	case(0x23): //LW
+		addr = reg[rs] + immed; 
+		if (validWord(addr, Exception::AddressErrorLoad))
+		{
+			load_delay_reg = rt;
+			load_delay_val = memory->read32(addr);
+		};break; 
 	case(0x24): break; //LBU
 	case(0x25): break; //LHU
-	case(0x26): break; //LWR
+	case(0x26):		
+		addr = (reg[rs] << 16) & 0xFF + immed;
+		if (validWord(addr, Exception::AddressErrorLoad))
+		{
+			load_delay_reg = rt;
+			load_delay_val = memory->read32(addr);
+		};break;//LWR
+
 
 	case(0x28): break; //SB
 	case(0x29): break; //SH
