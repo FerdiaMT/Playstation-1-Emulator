@@ -90,15 +90,20 @@ void CPU::execute_r_type(uint32_t instr)
 	case(0x0C): trigger_exception(Exception::Syscall); break;//SYSCALL
 	case(0x0D): trigger_exception(Exception::Breakpoint);break;//BREAK
 
-	case(0x10): break;//MFHI
-	case(0x11): break;//MTHI
-	case(0x12): break;//MFLO
-	case(0x13): break;//MTLO
-	
-	case(0x18): break;//MULT
-	case(0x19): break;//MULTU
-	case(0x1A): break;//DIV
-	case(0x1B): break;//DIVU
+	case(0x10): reg[rd] = hi; break;//MFHI
+	case(0x11): hi = reg[rs];//MTHI TODO CHECK
+	case(0x12):  reg[rd] = lo; break;//MFLO
+	case(0x13): hi = reg[rt];//MTLO TODO CHECK
+
+	case(0x18): int64_t res = (int64_t)(int32_t)reg[rs] * (int64_t)(int32_t)reg[rt]; lo = (uint32_t)(res & 0xFFFFFFFF); hi = (uint32_t)((res >> 0xFF) & 0xFFFFFFFF); break;//MULT
+	case(0x19): uint64_t res = (uint64_t)reg[rs] * (uint64_t)reg[rt]; lo = (uint32_t)(res & 0xFFFFFFFF); hi = (uint32_t)((res >> 32) & 0xFFFFFFFF); break;//MULTU
+
+	case(0x1A): // DIV
+	if (reg[rt] == 0)break;
+	else if (reg[rs] == INT32_MIN && reg[rt] == -1) { lo = (uint32_t)INT32_MIN; hi = 0; }
+	else lo = (uint32_t)(reg[rs] / reg[rt]);hi = (uint32_t)(reg[rs] % reg[rt]);break;
+
+	case(0x1B): if( reg[rt] != 0 ) lo = reg[rs] / reg[rt]; hi = reg[rs]%reg[rt] ;break;//DIVU
 
 	case(0x20): if ((int64_t)reg[rs] + (int64_t)reg[rt] > INT32_MAX) { trigger_exception(Exception::Overflow); }else { reg[rd] = reg[rs] + reg[rt]; } break; //ADD
 	case(0x21): reg[rd] = reg[rs] + reg[rt]; break;//ADDU
