@@ -5,6 +5,10 @@ CPU::CPU(Memory* memory) : memory(memory)
 
 }
 
+void CPU::reset()
+{
+}
+
 // So theres 3 types of cpu instructions
 
 // R type - register to register ~ 3 registers of data
@@ -49,7 +53,51 @@ CPU::CPU(Memory* memory) : memory(memory)
 // 2 special regs HI/LO , used to make a 64 bit reg, normally for MULT or DIV
 
 
+/// / PIPELINING
+
+// fetch, decode, execute, mem write/read(if needed) , writeBack(into reg)
+
+//the second a fetch is done, next cycle its put into decode
+//that cycle, a new fetch is also done, so its 1 fetch per cycle
+
+
+void CPU::execute_r_type(uint32_t instr)
+{
+}
+
+void CPU::execute_i_type(uint32_t instr)
+{
+}
+
+void CPU::execute_j_type(uint32_t instr)
+{
+}
+
+
+inline void CPU::decode(uint32_t instr) // decide what type the opcode is
+{
+	uint8_t opcode = (instr >> 26) & 0x3F;
+	if(opcode == 0x00) execute_r_type(instr);
+	else if (opcode == 0x02 || opcode == 0x03) execute_j_type(instr);
+	else execute_i_type(instr);
+}
+
 int CPU::step()
 {
-	return 0;
+	// PRE PIPELINE ~ we must apply the previous cycles reg vals
+	// the ps1 reg vals can only get written into after the cycle
+	if (load_delay_reg != 0)
+	{
+		reg[load_delay_reg] = load_delay_val;
+		load_delay_reg = 0;
+	}
+
+	//fetch first instruction
+	uint32_t opcode = memory->read32(pc);
+	decode(opcode); // this also executes it
+
+	pc = nextPc;
+	nextPc += 4;
+
+	reg[0] = 0;
 }
