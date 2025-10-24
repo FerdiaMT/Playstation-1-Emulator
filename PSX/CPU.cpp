@@ -205,19 +205,24 @@ void CPU::execute_i_type(uint32_t instr , uint8_t opcode)
 		};break;
 
 	case(0x22): break; //LWL
-		addr = (reg[rs]>>16)&0xFF + immed;
-		if (validWord(addr, Exception::AddressErrorLoad))
-		{
-			load_delay_reg = rt;
-			load_delay_val = memory->read32(addr);
-		};break;
+		addr = reg[rs] + (int16_t)immed;
+		uint32_t value = memory->read32(addr & ~3); // read the 4 divisible 32 bit word that addr is in
+		uint32_t shift = (addr & 3) * 8; // 
+		uint32_t mask = 0xFFFFFFFF >> shift;
+
+		load_delay_val = (reg[rt] & mask) | (value << (24 - shift * 8));
+		load_delay_reg = rt;
+
+		break;
+
 	case(0x23): //LW
 		addr = reg[rs] + immed; 
-		if (validWord(addr, Exception::AddressErrorLoad))
-		{
-			load_delay_reg = rt;
-			load_delay_val = memory->read32(addr);
-		};break; 
+		uint32_t value = memory->read32(addr & ~3);
+		uint32_t shift = (addr & 3 * 8);
+		uint32_t mask = 0xFFFFFFFF << ((3 - (addr & 3) * 8));
+		load_delay_val = (reg[rt] & mask) | (value >> shift);
+		load_delay_reg = rt;
+
 	case(0x24): break; //LBU
 	case(0x25): break; //LHU
 	case(0x26):		
