@@ -1,6 +1,6 @@
 #include "CPU.h"
 #include <cstdint>
-CPU::CPU(Memory* memory) : memory(memory)
+CPU::CPU(Memory* memory) : memory(memory) ,cycles(1)
 {
 
 }
@@ -100,4 +100,6 @@ int CPU::step()
 	nextPc += 4;
 
 	reg[0] = 0;
+
+	return 1;
 }
