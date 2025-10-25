@@ -14,6 +14,9 @@
 
 CPU::CPU(Memory* memory) : memory(memory) ,cycles(1)
 {
+	reset();
+	cop0.PRId = 0x00000002; 
+	cop0.Status = 0x00400000;
 
 }
 
@@ -77,27 +80,33 @@ void CPU::reset()
 //the second a fetch is done, next cycle its put into decode
 //that cycle, a new fetch is also done, so its 1 fetch per cycle
 
-void trigger_exception(CPU::Exception exc)
+void CPU::trigger_exception(Exception exc, uint32_t badAddr)
 {
-	std::cout << "EXCEPTION, "<<std::endl;
+	cop0.EPC = pc - 4;// origin
+	cop0.Cause = static_cast<uint32_t>(exc)<<2;//cause
+	cop0.BadVAddr = badAddr; // store adress that faulted
+
+	bool BEV = (cop0.Status >> 22) & 1; // calculate the BEV
+	pc = BEV ? 0xBFC00180 : 0x80000080;
 }
+
 
 inline bool CPU::validWord(uint32_t word , Exception exc) // divisable by 4
 {
 	if (word & 0x3)
 	{
-		trigger_exception(exc);
+		trigger_exception(exc , word);
 		return false;
 	}
 
 	return true;
 }
 
-inline bool CPU::validHalfWord(uint32_t word , Exception exc) // divisable by 2 
+inline bool CPU::validHalfWord(uint16_t hword, Exception exc) // divisable by 2 
 {
-	if (word & 0x1)
+	if (hword & 0x1)
 	{
-		trigger_exception(exc);
+		trigger_exception(exc , hword);
 		return false;
 	}
 
@@ -135,8 +144,8 @@ void CPU::execute_r_type(uint32_t instr)
 		load_delay_val = nextPc;
 		nextPc = reg[rs];
 	} break;
-	case(0x0C): trigger_exception(Exception::Syscall); break;//SYSCALL
-	case(0x0D): trigger_exception(Exception::Breakpoint);break;//BREAK
+	case(0x0C): trigger_exception(Exception::Syscall,0); break;//SYSCALL
+	case(0x0D): trigger_exception(Exception::Breakpoint,0);break;//BREAK
 
 	case(0x10): reg[rd] = hi; break;//MFHI
 	case(0x11): hi = reg[rs];//MTHI TODO CHECK
@@ -157,10 +166,10 @@ void CPU::execute_r_type(uint32_t instr)
 
 	case(0x1B): if( reg[rt] != 0 ) lo = reg[rs] / reg[rt]; hi = reg[rs]%reg[rt] ;break;//DIVU
 
-	case(0x20): if ((int64_t)reg[rs] + (int64_t)reg[rt] > INT32_MAX) { trigger_exception(Exception::Overflow); }else { reg[rd] = reg[rs] + reg[rt]; } break; //ADD
+	case(0x20): if ((int64_t)reg[rs] + (int64_t)reg[rt] > INT32_MAX) { trigger_exception(Exception::Overflow,0); }else { reg[rd] = reg[rs] + reg[rt]; } break; //ADD
 	case(0x21): reg[rd] = reg[rs] + reg[rt]; break;//ADDU
 
-	case(0x22): if ((int64_t)reg[rs] - (int64_t)reg[rt] < INT32_MIN) { trigger_exception(Exception::Overflow); }else { reg[rd] = reg[rs] - reg[rt]; } break; //SUB
+	case(0x22): if ((int64_t)reg[rs] - (int64_t)reg[rt] < INT32_MIN) { trigger_exception(Exception::Overflow,0); }else { reg[rd] = reg[rs] - reg[rt]; } break; //SUB
 	case(0x23): reg[rd] = reg[rs] - reg[rt];//SUBU
 
 	case(0x24): reg[rd] = reg[rs] & reg[rt]; break;//AND
@@ -233,7 +242,7 @@ void CPU::execute_i_type(uint32_t instr , uint8_t opcode)
 
 		if (((a ^ imm) >= 0) && ((a ^ res) < 0))
 		{
-			trigger_exception(Exception::Overflow);
+			trigger_exception(Exception::Overflow,0);
 		}
 
 		reg[rt] = static_cast<uint32_t>(res);
@@ -368,7 +377,7 @@ void CPU::execute_i_type(uint32_t instr , uint8_t opcode)
 
 	default:
 	printf("Reserved Instruction: opcode 0x%02X at PC 0x%08X\n", opcode, pc);
-	trigger_exception(Exception::ReservedInstruction);
+	trigger_exception(Exception::ReservedInstruction, pc);
 	break;
 	}
 
