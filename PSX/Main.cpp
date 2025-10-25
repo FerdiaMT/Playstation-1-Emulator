@@ -7,10 +7,12 @@ int main()
 	bool running = true;
 	while (running)
 	{
-		//for (int i = 0; i < 70224; i += psx.cpu.cycles)
-		//{
-		//	psx.tick();
-		//}
+		for (int i = 0; i < 10; i += psx.cpu.cycles) // cpu cycles is hardcoded on 1 for now
+		{
+			psx.tick();
+		}
+
+		running = false; // this is just for debugging
 	}
 
 	return 1;

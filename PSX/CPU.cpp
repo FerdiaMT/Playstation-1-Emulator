@@ -8,6 +8,11 @@ CPU::CPU(Memory* memory) : memory(memory) ,cycles(1)
 
 void CPU::reset()
 {
+	memset(reg, 0 , 32);
+	hi = 0;
+	lo = 0;
+	pc = 0xBFC00000;
+	nextPc = pc + 4;
 }
 
 // So theres 3 types of cpu instructions
@@ -164,19 +169,37 @@ void CPU::execute_i_type(uint32_t instr , uint8_t opcode)
 
 	uint32_t addr{};
 
+	//SOME WRITING ON BRANCHING
+		// use relative adressing, 
+		// if branch not taken, nextpc will just +=4 as per usual
+		// if it is, we want it to +4 AND + (immed*4) , which is <<2
+	//ALWAYS USE NEXTPC INSTEAD OF PC, AS THE NEXT INSTRUCTION MUST BE EXECUTED FIRST
+
 	switch (opcode)
 	{
 	case(0x01): break; //BcondZ  
-	case(0x04): break; //BEQ     
-	case(0x05): break; //BNE     
+	case(0x04): if (rs == rt) nextPc += ((static_cast<int16_t>(immed)) << 2); break; //BEQ   
+	case(0x05): if (rs != rt) nextPc += ((static_cast<int16_t>(immed)) << 2); break; //BNE     
 	case(0x06): break; //BLEZ    
 	case(0x07): break; //BGTZ    
 		
 	case(0x08)://ADDI
-	addr = memory->read32(immed);
-		if ((int64_t)reg[rs] + (int64_t)addr > INT32_MAX) { trigger_exception(Exception::Overflow); }
-		else { reg[rt] = reg[rs] + addr; } break;
-	case(0x09): reg[rt] = reg[rs] + memory->read32(immed); break;  //ADDIU
+
+	{
+		int32_t a = static_cast<int32_t>(reg[rs]);
+		int32_t imm = static_cast<int16_t>(immed);
+		int32_t res = a+imm;
+
+		if (((a ^ imm) >= 0) && ((a ^ res) < 0))
+		{
+			trigger_exception(Exception::Overflow);
+		}
+
+		reg[rt] = static_cast<uint32_t>(res);
+		break;
+	}
+
+	case(0x09): reg[rt] = static_cast<uint32_t>(static_cast<int32_t>(reg[rs]) + static_cast<int16_t>(immed)); break;  //ADDIU
 
 	case(0x0A): reg[rs] < immed ? reg[rt] = 1 : reg[rt] = 0; break; //SLTI  
 	case(0x0B): (int32_t)reg[rs] < (int32_t)immed ? reg[rt] = 1 : reg[rt] = 0; break; //SLTIU 
@@ -205,6 +228,7 @@ void CPU::execute_i_type(uint32_t instr , uint8_t opcode)
 		};break;
 
 	case(0x22): break; //LWL
+	{
 		addr = reg[rs] + (int16_t)immed;
 		uint32_t value = memory->read32(addr & ~3); // read the 4 divisible 32 bit word that addr is in
 		uint32_t shift = (addr & 3) * 8; // 
@@ -214,30 +238,34 @@ void CPU::execute_i_type(uint32_t instr , uint8_t opcode)
 		load_delay_reg = rt;
 
 		break;
+	}
 
 	case(0x23): //LW
-		addr = reg[rs] + immed; 
-		uint32_t value = memory->read32(addr & ~3);
-		uint32_t shift = (addr & 3 * 8);
-		uint32_t mask = 0xFFFFFFFF << ((3 - (addr & 3) * 8));
-		load_delay_val = (reg[rt] & mask) | (value >> shift);
-		load_delay_reg = rt;
-
-	case(0x24): break; //LBU
-	case(0x25): break; //LHU
-	case(0x26):		
-		addr = (reg[rs] << 16) & 0xFF + immed;
+	{
+		addr = reg[rs] + immed;
 		if (validWord(addr, Exception::AddressErrorLoad))
 		{
 			load_delay_reg = rt;
 			load_delay_val = memory->read32(addr);
-		};break;//LWR
+		};break;
+	}
+	case(0x24): break; //LBU
+	case(0x25): break; //LHU
+	case(0x26):
+		{		//LWR
+			addr = reg[rs] + immed;
+			uint32_t value = memory->read32(addr & ~3);
+			uint32_t shift = (addr & 3 * 8);
+			uint32_t mask = 0xFFFFFFFF << ((3 - (addr & 3) * 8));
+			load_delay_val = (reg[rt] & mask) | (value >> shift);
+			load_delay_reg = rt;
 
-
+			break;
+		}
 	case(0x28): break; //SB
 	case(0x29): break; //SH
 	case(0x2A): break; //SWL
-	case(0x2B): break; //SW
+	case(0x2B): memory->write32(static_cast<int16_t>(immed & 0xFFFF), reg[rt]);break; // SW
 	case(0x2E): break; //SWR
 
 	case(0x30): break; //LWC0
@@ -304,10 +332,13 @@ int CPU::step()
 
 	//fetch first instruction
 	uint32_t opcode = memory->read32(pc);
-	decode(opcode); // this also executes it
 
 	pc = nextPc;
 	nextPc += 4;
+
+	decode(opcode); // this also executes it
+
+
 
 	reg[0] = 0;
 
