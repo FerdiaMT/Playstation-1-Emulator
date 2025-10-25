@@ -31,6 +31,10 @@ class CPU
 	int cycles;
 
 
+	bool interrupts_enabled; // helper bool to check if interrupts are enabled
+
+	bool jump_just_executed = false;
+	bool in_branch_delay = false; // helper bool for knowing if were in the op after the branch op / before branch takes place
 
 
 	//CPU REGS
@@ -45,29 +49,28 @@ class CPU
 
 	struct COP0
 	{
-		uint32_t reg[16] = {}; 
+		uint32_t reg[32] = {}; 
 
-		uint32_t& INDX = reg[0];
-		uint32_t& RAND = reg[1];
-		uint32_t& TLBL = reg[2];
-		uint32_t& BPC  = reg[3];
-		uint32_t& CTXT = reg[4];
-		uint32_t& BDA  = reg[5];
-		uint32_t& PIDMASK = reg[6];
-		uint32_t& DCIC = reg[7];
-		uint32_t& BADV = reg[8];
-		uint32_t& BDAM = reg[9];
-		uint32_t& TLBH = reg[10];
-		uint32_t& BPCM = reg[11];
-		uint32_t& SR   = reg[12];
-		uint32_t& CAUSE = reg[13];
+		uint32_t& Status = reg[12];
+		uint32_t& Cause = reg[13];
 		uint32_t& EPC = reg[14];
-		uint32_t& PRID = reg[15];
-		uint32_t& ERREG = reg[16]; // this does nothing
+		uint32_t& PRId = reg[15];
+
+		uint32_t& BadVAddr = reg[8];
+		uint32_t& Count = reg[9];
+		uint32_t& Compare = reg[11];
+
+		//ps1 only
+		uint32_t& BPC = reg[3];
+		uint32_t& BDA = reg[5];
+		uint32_t& DCIC = reg[7];
+		uint32_t& JumpDest = reg[10];
 
 	};
 
 	COP0 cop0;
+
+	void incrementCOP0Count();
 
 	//helpers for load delay
 

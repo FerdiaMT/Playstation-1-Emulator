@@ -38,6 +38,11 @@ PSX::PSX() : cpu(&memory)
 
 void PSX::tick()
 {
-	int cycles = cpu.step();
+	cpu.step();
+	//gpu.step()
+	cpu.step();
+	//gpu.step()
+
+	cpu.incrementCOP0Count();
 }
 

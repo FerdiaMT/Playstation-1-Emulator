@@ -11,10 +11,15 @@ int main()
 	bool running = true;
 	while (running)
 	{
-		for (int i = 0; i < 10000000; i += psx.cpu.cycles) // cpu cycles is hardcoded on 1 for now
+		for (int i = 0; i < 10000; i += 1) // EACH TICK CAUSES 2 CYCLES OF EVERYTHING
 		{
 			psx.tick();
 		}
+
+		//updateframe
+
+
+
 
 		running = false; // this is just for debugging
 	}

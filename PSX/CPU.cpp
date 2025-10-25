@@ -82,12 +82,21 @@ void CPU::reset()
 
 void CPU::trigger_exception(Exception exc, uint32_t badAddr)
 {
-	cop0.EPC = pc - 4;// origin
-	cop0.Cause = static_cast<uint32_t>(exc)<<2;//cause
-	cop0.BadVAddr = badAddr; // store adress that faulted
+	cop0.EPC = pc - 4;
 
-	bool BEV = (cop0.Status >> 22) & 1; // calculate the BEV
+	cop0.Cause = static_cast<uint32_t>(exc) << 2;
+
+	if (in_branch_delay)
+		cop0.Cause |= (1u << 31);
+
+	cop0.BadVAddr = badAddr;
+	cop0.Status |= 0x2;
+
+
+	bool BEV = (cop0.Status >> 22) & 1;
 	pc = BEV ? 0xBFC00180 : 0x80000080;
+	nextPc = pc;
+
 }
 
 
@@ -209,29 +218,29 @@ void CPU::execute_i_type(uint32_t instr , uint8_t opcode)
 		//special case , 00 BLTZ, 01, BGEZ, 10 BLTZAL, 11 BGEZAL
 		switch (rt)
 		{
-		case(0x00): if ((static_cast<int32_t>(reg[rs])) < 0) nextPc += ((static_cast<int16_t>(immed)) << 2); break;    //BLTZ
-		case(0x01): if ((static_cast<int32_t>(reg[rs]))>= 0) nextPc += ((static_cast<int16_t>(immed)) << 2); break;		//BGEZ
+		case(0x00): if ((static_cast<int32_t>(reg[rs])) < 0) nextPc += ((static_cast<int16_t>(immed)) << 2);jump_just_executed = true; break;    //BLTZ
+		case(0x01): if ((static_cast<int32_t>(reg[rs]))>= 0) nextPc += ((static_cast<int16_t>(immed)) << 2);jump_just_executed = true; break;		//BGEZ
 
 		case(0x10): //BLTZAL
 		{
 			load_delay_reg = 31;
 			load_delay_val = nextPc;
-			if ((static_cast<int32_t>(reg[rs])) < 0) nextPc += ((static_cast<int16_t>(immed)) << 2);
+			if ((static_cast<int32_t>(reg[rs])) < 0) nextPc += ((static_cast<int16_t>(immed)) << 2);jump_just_executed = true;
 		} break;		
 		case(0x11): //BGEZAL
 		{
 			load_delay_reg = 31;
 			load_delay_val = nextPc;
 
-			if ((static_cast<int32_t>(reg[rs])) >= 0) nextPc += ((static_cast<int16_t>(immed)) << 2);
+			if ((static_cast<int32_t>(reg[rs])) >= 0) nextPc += ((static_cast<int16_t>(immed)) << 2);jump_just_executed = true;
 		}break;		
 		}
 	} break;
 			 
-	case(0x04): if (reg[rs] == reg[rt]) nextPc += ((static_cast<int16_t>(immed)) << 2); break; //BEQ   
-	case(0x05): if (reg[rs] != reg[rt]) nextPc += ((static_cast<int16_t>(immed)) << 2); break; //BNE     
-	case(0x06): if ((static_cast<int32_t>(reg[rs]))<=0) nextPc += ((static_cast<int16_t>(immed)) << 2); break; //BLEZ    less then equal zero
-	case(0x07): if ((static_cast<int32_t>(reg[rs])) >0) nextPc += ((static_cast<int16_t>(immed)) << 2); break; //BGTZ    greater then zero
+	case(0x04): if (reg[rs] == reg[rt]) nextPc += ((static_cast<int16_t>(immed)) << 2); jump_just_executed = true; break; //BEQ   
+	case(0x05): if (reg[rs] != reg[rt]) nextPc += ((static_cast<int16_t>(immed)) << 2); jump_just_executed = true; break; //BNE     
+	case(0x06): if ((static_cast<int32_t>(reg[rs]))<=0) nextPc += ((static_cast<int16_t>(immed)) << 2); jump_just_executed = true; break; //BLEZ    less then equal zero
+	case(0x07): if ((static_cast<int32_t>(reg[rs])) >0) nextPc += ((static_cast<int16_t>(immed)) << 2); jump_just_executed = true; break; //BGTZ    greater then zero
 		
 	case(0x08)://ADDI
 
@@ -258,7 +267,52 @@ void CPU::execute_i_type(uint32_t instr , uint8_t opcode)
 	case(0x0E): reg[rt] = reg[rs] ^ immed;break; //XORI  
 	case(0x0F): reg[rt] = (immed << 16) & 0xFF00;break; //LUI   
 
-	case(0x10): break; //COP0 
+	case(0x10): //COP0 
+	{
+
+		uint8_t rd = (instr >> 11) & 0b11111; // COP0 also uses rd 
+
+		switch (rs)
+		{
+		case(0):// MFC0
+		{
+			load_delay_reg = rt;
+			load_delay_val = cop0.reg[rd];
+		}break;
+		case(4):// MTC0
+		{
+			cop0.reg[rd] = reg[rt];
+
+			switch (rd)
+			{
+			case 12:
+			cop0.Status = reg[rt];
+			interrupts_enabled = (cop0.Status & 1) && !(cop0.Status & 2);
+			break;
+			case 11: 
+			cop0.Cause &= ~(1 << 15);
+			break;
+			case 9:
+			cop0.Count = reg[rt];
+			break;
+
+			}
+
+		}break;
+		case(16):// ERET
+		{
+			cop0.Status &= ~0x2;
+			cop0.Cause &= ~(1u << 31);
+			pc = cop0.EPC;
+
+			nextPc = pc+4;
+		}break;
+
+		default:
+		trigger_exception(Exception::CoprocessorUnusable,pc);
+
+		}
+	}break; 
 	case(0x11): break; //COP1 
 	case(0x12): break; //COP2 
 	case(0x13): break; //COP3 
@@ -402,13 +456,19 @@ void CPU::execute_j_type(uint32_t instr, uint8_t opcode)
 		load_delay_reg = 31;
 		load_delay_val = nextPc;
 		nextPc = (pc & 0xF0000000) | (immed << 2); 
+
+		jump_just_executed = true;
 	}
 	else // J
 	{
 		nextPc = (pc & 0xF0000000) | (immed << 2);  
+
+		jump_just_executed = true;
 	}
 
 }
+
+
 
 
 inline void CPU::decode(uint32_t instr) // decide what type the opcode is
@@ -421,6 +481,9 @@ inline void CPU::decode(uint32_t instr) // decide what type the opcode is
 
 int CPU::step()
 {
+
+	in_branch_delay = jump_just_executed;
+	jump_just_executed = false;
 	// PRE PIPELINE ~ we must apply the previous cycles reg vals
 	// the ps1 reg vals can only get written into after the cycle
 	if (load_delay_reg != 0)
@@ -429,21 +492,28 @@ int CPU::step()
 		load_delay_reg = 0;
 	}
 
-	//fetch first instruction
+	interrupts_enabled = (cop0.Status & 1) && !(cop0.Status & 2); 
+	uint32_t pending = cop0.Cause & (cop0.Status & 0xFF00); 
+	if (interrupts_enabled && pending)
+	{
+		trigger_exception(Exception::Interrupt, pc);
+	}
+
 	uint32_t opcode = memory->read32(pc);
 
 	pc = nextPc;
 	nextPc += 4;
 
-	//#ifdef DEBUG
-	printf("PC: 0x%08X | Opcode: 0x%08X\n", pc, opcode);
-	//#endif
 
 	decode(opcode); // this also executes it
-
 
 
 	reg[0] = 0;
 
 	return 1;
+}
+
+void CPU::incrementCOP0Count()
+{
+	cop0.Count += 1;
 }
