@@ -1,6 +1,17 @@
 #include "CPU.h"
 #include <cstdint>
 #include <iostream>
+
+//DOCS I GOT INFO FROM
+
+//https://www.cs.cornell.edu/courses/cs3410/2008fa/MIPS_Vol2.pdf?utm
+//https://ffhacktics.com/wiki/R3000_instruction_set
+//https://hitmen.c02.at/files/docs/psx/psx.pdf?utm
+// 
+// for converting c code to mips / machine code for mips
+//https://godbolt.org/
+//https://www.eg.bucknell.edu/~csci320/mips_web/
+
 CPU::CPU(Memory* memory) : memory(memory) ,cycles(1)
 {
 
@@ -115,8 +126,13 @@ void CPU::execute_r_type(uint32_t instr)
 	case(0x04): reg[rd] = reg[rt] << reg[rs];break;//SLLV
 	case(0x06): reg[rd] = reg[rt] >> reg[rs];break;//SRLV
 	case(0x07): reg[rd] = (uint32_t)((int32_t)reg[rt] >> reg[rs]);break;//SRAV
-	case(0x08): break;//JR
-	case(0x09): break;//JALR
+	case(0x08): nextPc = reg[rs]; break;//JR
+	case(0x09): //JALR
+	{
+		load_delay_reg = 31;
+		load_delay_val = nextPc;
+		nextPc = reg[rs];
+	} break;
 	case(0x0C): trigger_exception(Exception::Syscall); break;//SYSCALL
 	case(0x0D): trigger_exception(Exception::Breakpoint);break;//BREAK
 
@@ -177,11 +193,34 @@ void CPU::execute_i_type(uint32_t instr , uint8_t opcode)
 
 	switch (opcode)
 	{
-	case(0x01): break; //BcondZ  
-	case(0x04): if (rs == rt) nextPc += ((static_cast<int16_t>(immed)) << 2); break; //BEQ   
-	case(0x05): if (rs != rt) nextPc += ((static_cast<int16_t>(immed)) << 2); break; //BNE     
-	case(0x06): break; //BLEZ    
-	case(0x07): break; //BGTZ    
+	case(0x01): //BcondZ  
+	{
+		//special case , 00 BLTZ, 01, BGEZ, 10 BLTZAL, 11 BGEZAL
+		switch (rt)
+		{
+		case(0x00): if ((static_cast<int32_t>(reg[rs])) < 0) nextPc += ((static_cast<int16_t>(immed)) << 2); break;    //BLTZ
+		case(0x01): if ((static_cast<int32_t>(reg[rs]))>= 0) nextPc += ((static_cast<int16_t>(immed)) << 2); break;		//BGEZ
+
+		case(0x10): //BLTZAL
+		{
+			load_delay_reg = 31;
+			load_delay_val = nextPc;
+			if ((static_cast<int32_t>(reg[rs])) < 0) nextPc += ((static_cast<int16_t>(immed)) << 2);
+		} break;		
+		case(0x11): //BGEZAL
+		{
+			load_delay_reg = 31;
+			load_delay_val = nextPc;
+
+			if ((static_cast<int32_t>(reg[rs])) >= 0) nextPc += ((static_cast<int16_t>(immed)) << 2);
+		}break;		
+		}
+	} break;
+			 
+	case(0x04): if (reg[rs] == reg[rt]) nextPc += ((static_cast<int16_t>(immed)) << 2); break; //BEQ   
+	case(0x05): if (reg[rs] != reg[rt]) nextPc += ((static_cast<int16_t>(immed)) << 2); break; //BNE     
+	case(0x06): if ((static_cast<int32_t>(reg[rs]))<=0) nextPc += ((static_cast<int16_t>(immed)) << 2); break; //BLEZ    less then equal zero
+	case(0x07): if ((static_cast<int32_t>(reg[rs])) >0) nextPc += ((static_cast<int16_t>(immed)) << 2); break; //BGTZ    greater then zero
 		
 	case(0x08)://ADDI
 
@@ -216,20 +255,24 @@ void CPU::execute_i_type(uint32_t instr , uint8_t opcode)
 	
 	//THE LOAD INSTRUCTIONS (REGISTER DELAY)
 	case(0x20): break; //LB   
-		addr = reg[rs] + immed;
+	{
+		uint8_t loadedByte = memory->read8(static_cast<int16_t>(immed) + reg[rs]);
 		load_delay_reg = rt;
-		load_delay_val = memory->read8(addr);break;
+		load_delay_val = static_cast<uint32_t>(static_cast<int32_t>(loadedByte));;
+	}
+
 	case(0x21): break; //LH
-		addr = reg[rs] + immed;
+
+		addr = reg[rs] + static_cast<int16_t>(immed);
 		if (validHalfWord(addr , Exception::AddressErrorLoad))
 		{
 			load_delay_reg = rt;
-			load_delay_val = memory->read16(addr);
+			load_delay_val = static_cast<uint32_t>(static_cast<int32_t>(memory->read16(addr)));
 		};break;
 
 	case(0x22): break; //LWL
 	{
-		addr = reg[rs] + (int16_t)immed;
+		addr = reg[rs] + static_cast<int16_t>(immed);
 		uint32_t value = memory->read32(addr & ~3); // read the 4 divisible 32 bit word that addr is in
 		uint32_t shift = (addr & 3) * 8; // 
 		uint32_t mask = 0xFFFFFFFF >> shift;
@@ -242,18 +285,32 @@ void CPU::execute_i_type(uint32_t instr , uint8_t opcode)
 
 	case(0x23): //LW
 	{
-		addr = reg[rs] + immed;
+		addr = reg[rs] + static_cast<int16_t>(immed);
 		if (validWord(addr, Exception::AddressErrorLoad))
 		{
 			load_delay_reg = rt;
-			load_delay_val = memory->read32(addr);
+			load_delay_val = static_cast<uint32_t>( static_cast<int32_t>(memory->read32(addr)) );
 		};break;
 	}
-	case(0x24): break; //LBU
-	case(0x25): break; //LHU
-	case(0x26):
-		{		//LWR
-			addr = reg[rs] + immed;
+	case(0x24): //LBU
+	{
+		uint8_t loadedByte = memory->read8(static_cast<int16_t>(immed) +reg[rs]);
+		load_delay_reg = rt;
+		load_delay_val = static_cast<uint32_t>(loadedByte);
+	} 
+	break; 
+	case(0x25):		//LHU
+	{
+		addr = reg[rs] + static_cast<int16_t>(immed);
+		if (validHalfWord(addr, Exception::AddressErrorLoad))
+		{
+			load_delay_reg = rt;
+			load_delay_val = static_cast<uint32_t>(memory->read16(addr));
+		};break;
+	}
+	case(0x26):		//LWR
+		{		
+			addr = reg[rs] + static_cast<int16_t>(immed);
 			uint32_t value = memory->read32(addr & ~3);
 			uint32_t shift = (addr & 3 * 8);
 			uint32_t mask = 0xFFFFFFFF << ((3 - (addr & 3) * 8));
@@ -263,11 +320,42 @@ void CPU::execute_i_type(uint32_t instr , uint8_t opcode)
 			break;
 		}
 	case(0x28): break; //SB
-	case(0x29): break; //SH
-	case(0x2A): break; //SWL
-	case(0x2B): memory->write32(static_cast<int16_t>(immed & 0xFFFF), reg[rt]);break; // SW
-	case(0x2E): break; //SWR
 
+		uint32_t addr = reg[rs] + static_cast<int16_t>(immed & 0xFFFF);
+		memory->write16(addr, reg[rt] & 0xFF);
+
+	case(0x29): break; //SH
+
+		uint32_t addr = reg[rs] + static_cast<int16_t>(immed & 0xFFFF);
+		if (validHalfWord(addr, Exception::AddressErrorStore))
+		{
+			memory->write16(addr, reg[rt]&0xFFFF);
+		}break;
+
+	case(0x2A): //SWL
+		{
+		uint32_t addr = reg[rs] + static_cast<int16_t>(immed & 0xFFFF);
+		uint32_t shift = (addr & 0x3) << 3;
+		uint32_t mem = memory->read32((addr & ~0x3));
+		mem = (mem & ~(0xFFFFFFFF << shift)) | (reg[rt] << shift);
+		memory->write32((addr & ~0x3), mem);
+		}break; 
+	case(0x2B): // SW
+	{
+		uint32_t addr = reg[rs] + static_cast<int16_t>(immed & 0xFFFF);
+		if (validWord(addr , Exception::AddressErrorStore)) 
+		{
+			memory->write32(addr, reg[rt]);
+		}break;
+	}
+	case(0x2E): break; //SWR
+	{
+		uint32_t addr = reg[rs] + static_cast<int16_t>(immed & 0xFFFF);
+		uint32_t shift = (addr & 0x3) << 3;
+		uint32_t mem = memory->read32((addr & ~0x3));
+		mem = (mem & ~(0xFFFFFFFF >> (24 - shift))) | (reg[rt] >> (24 - shift));
+		memory->write32((addr & ~0x3), mem);
+	}
 	case(0x30): break; //LWC0
 	case(0x31): break; //LWC1
 	case(0x32): break; //LWC2
@@ -302,11 +390,13 @@ void CPU::execute_j_type(uint32_t instr, uint8_t opcode)
 	
 	if (opcode & 0x1) // checks odd bit (JAL)
 	{
-
+		load_delay_reg = 32;
+		load_delay_val = nextPc;
+		nextPc = nextPc & 0xF0000000 | ((static_cast<int32_t>(immed)) << 2);
 	}
 	else // J type
 	{
-
+		nextPc = nextPc & 0xF0000000 | ((static_cast<int32_t>(immed)) << 2);
 	}
 
 }
