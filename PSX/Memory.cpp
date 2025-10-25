@@ -1,3 +1,5 @@
+#define _CRT_SECURE_NO_WARNINGS
+
 #include "Memory.h"
 #include <memory>
 #include <cstdint>
@@ -13,18 +15,35 @@ Memory::Memory()
     memset(cache.get(), 0, 1024);
 }
 
+
 uint32_t Memory::read32(uint32_t addr)
 {
-    if (addr >= 0x000000 && addr <= 0x1FFFFF)
+    uint32_t masked_addr = addr & 0x1FFFFFFF;
+
+    if (masked_addr < 0x00200000)
     {
-        return ram[addr] | (ram[addr + 1] << 8) | (ram[addr + 2] << 16) | (ram[addr + 3] << 24);
+        uint32_t offset = masked_addr & 0x001FFFFF;
+        return *(uint32_t*)&ram[offset];
     }
-    else if (addr >= 0xBFC00000 && addr <= 0xBFC7FFFF)
+
+    else if (masked_addr >= 0x1FC00000 && masked_addr < 0x1FC80000)
     {
-        uint32_t offset = addr - 0xBFC00000;
-        return bios[offset] | (bios[offset + 1] << 8) | (bios[offset + 2] << 16) | (bios[offset + 3] << 24);
+        uint32_t offset = masked_addr - 0x1FC00000;
+        return *(uint32_t*)&bios[offset];
+    }
+    else if (masked_addr >= 0x1F800000 && masked_addr < 0x1F800400)
+    {
+        uint32_t offset = masked_addr - 0x1F800000;
+        return *(uint32_t*)&cache[offset];
+    }
+
+    else
+    {
+        printf("Unhandled read32 at 0x%08X\n", addr);
+        return 0xFFFFFFFF;
     }
 }
+
 
 uint16_t Memory::read16(uint32_t addr)
 {
@@ -55,40 +74,43 @@ uint8_t Memory::read8(uint32_t addr)
 
 void Memory::write32(uint32_t addr, uint32_t val)
 {
-    
-    if (addr >= 0x000000 && addr <= 0x1FFFFF)
+    uint32_t masked_addr = addr & 0x1FFFFFFF;
+
+    if (masked_addr < 0x00200000)
     {
-        std::cout << "write to RAM " << ram << "with val " << std::hex << val <<" | "<<std::dec << val << std::endl;
-        ram[addr] = val & 0xFF;
-        ram[addr + 1] = (val >> 8) & 0xFF;
-        ram[addr + 2] = (val >> 16) & 0xFF;
-        ram[addr + 3] = (val >> 24) & 0xFF;
+        uint32_t offset = masked_addr & 0x001FFFFF;
+        *(uint32_t*)&ram[offset] = val;
+        return;
     }
-    else if (addr >= 0xBFC00000 && addr <= 0xBFC7FFFF)
+
+    else if (masked_addr >= 0x1FC00000 && masked_addr < 0x1FC80000)
     {
-        
-        uint32_t offset = addr - 0xBFC00000;
-        std::cout << "write to " << offset << "with val " <<std::hex<< val << std::endl;
-        bios[offset] = val & 0xFF;
-        bios[offset + 1] = (val >> 8) & 0xFF;
-        bios[offset + 2] = (val >> 16) & 0xFF;
-        bios[offset + 3] = (val >> 24) & 0xFF;
+        printf("Attempted write to BIOS ROM at 0x%08X\n", addr);
+        return;
+    }
+
+    else if (masked_addr >= 0x1F800000 && masked_addr < 0x1F800400)
+    {
+        uint32_t offset = masked_addr - 0x1F800000;
+        *(uint32_t*)&cache[offset] = val;
+        return;
+    }
+    else
+    {
+        printf("Unhandled write32 at 0x%08X = 0x%08X\n", addr, val);
     }
 }
-
 
 void Memory::write16(uint32_t addr, uint32_t val)
 {
     if (addr >= 0x000000 && addr <= 0x1FFFFF)
     {
-        std::cout << "write to RAM " << ram << "with val " << std::hex << val << " | " << std::dec << val << std::endl;
         ram[addr] = val & 0xFF;
         ram[addr + 1] = (val >> 8) & 0xFF;
     }
     else if (addr >= 0xBFC00000 && addr <= 0xBFC7FFFF)
     {
         uint32_t offset = addr - 0xBFC00000;
-        std::cout << "write to " << offset << "with val " << std::hex << val << std::endl;
         bios[offset] = val & 0xFF;
         bios[offset + 1] = (val >> 8) & 0xFF;
     }
@@ -98,13 +120,39 @@ void Memory::write8(uint32_t addr, uint32_t val)
 {
     if (addr >= 0x000000 && addr <= 0x1FFFFF)
     {
-        std::cout << "write to RAM " << ram << "with val " << std::hex << val << " | " << std::dec << val << std::endl;
         ram[addr] = val & 0xFF;
     }
     else if (addr >= 0xBFC00000 && addr <= 0xBFC7FFFF)
     {
         uint32_t offset = addr - 0xBFC00000;
-        std::cout << "write to " << offset << "with val " << std::hex << val << std::endl;
         bios[offset] = val & 0xFF;
     }
+}
+
+void Memory::load_bios(const char* file)
+{
+
+    FILE* fp = fopen(file, "rb");
+    if (!fp)
+    {
+        fprintf(stderr, "Failed to open BIOS file: %s\n", file);
+        return;
+    }
+
+
+    fseek(fp, 0, SEEK_END);
+    size_t size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+
+
+    if (size != 512 * 1024)
+    {
+        fprintf(stderr, "Warning: BIOS size is %zu bytes, expected 524288\n", size);
+    }
+    fread(&bios[0], 1, size, fp);
+
+    fclose(fp);
+
+    printf("Loaded BIOS: %s (%zu bytes)\n", file, size);
+
 }

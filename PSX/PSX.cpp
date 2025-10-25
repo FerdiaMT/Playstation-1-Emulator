@@ -24,8 +24,13 @@ void memoryDebug(Memory* memory)
 
 PSX::PSX() : cpu(&memory)
 {
+
+	//memory.load_bios("CPUTest/CPU/ADD/CPUADD.bin");
+	memory.load_bios("SCPH1001.bin");
+
+
 	// i can load things to memory here in order to debug certain problems
-	memoryDebug(&memory);
+	//memoryDebug(&memory);
 
 	cpu.reset();
 

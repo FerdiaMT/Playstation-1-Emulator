@@ -23,7 +23,7 @@ public:
 	void write8(uint32_t addr, uint32_t val);
 
 
-	bool load_bios(const char* file); // bool to check if bios loads
+	void load_bios(const char* file); 
 
 };
 

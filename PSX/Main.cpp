@@ -4,10 +4,14 @@ int main()
 {
 	PSX psx;
 
+	
+
+	
+
 	bool running = true;
 	while (running)
 	{
-		for (int i = 0; i < 10; i += psx.cpu.cycles) // cpu cycles is hardcoded on 1 for now
+		for (int i = 0; i < 10000000; i += psx.cpu.cycles) // cpu cycles is hardcoded on 1 for now
 		{
 			psx.tick();
 		}

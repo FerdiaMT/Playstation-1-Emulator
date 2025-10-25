@@ -79,27 +79,29 @@ void CPU::reset()
 
 void trigger_exception(CPU::Exception exc)
 {
-	std::cout << "EXCEPTION, ";
+	std::cout << "EXCEPTION, "<<std::endl;
 }
 
 inline bool CPU::validWord(uint32_t word , Exception exc) // divisable by 4
 {
-	if (word & 0b00)
+	if (word & 0x3)
 	{
-		return true;
+		trigger_exception(exc);
+		return false;
 	}
 
-	trigger_exception(exc);
+	return true;
 }
 
 inline bool CPU::validHalfWord(uint32_t word , Exception exc) // divisable by 2 
 {
-	if (word & 0b0)
+	if (word & 0x1)
 	{
-		return true;
+		trigger_exception(exc);
+		return false;
 	}
 
-	trigger_exception(exc);
+	return true;
 }
 
 
@@ -297,8 +299,7 @@ void CPU::execute_i_type(uint32_t instr , uint8_t opcode)
 		uint8_t loadedByte = memory->read8(static_cast<int16_t>(immed) +reg[rs]);
 		load_delay_reg = rt;
 		load_delay_val = static_cast<uint32_t>(loadedByte);
-	} 
-	break; 
+	}break; 
 	case(0x25):		//LHU
 	{
 		addr = reg[rs] + static_cast<int16_t>(immed);
@@ -306,8 +307,8 @@ void CPU::execute_i_type(uint32_t instr , uint8_t opcode)
 		{
 			load_delay_reg = rt;
 			load_delay_val = static_cast<uint32_t>(memory->read16(addr));
-		};break;
-	}
+		}
+	}break;
 	case(0x26):		//LWR
 		{		
 			addr = reg[rs] + static_cast<int16_t>(immed);
@@ -315,22 +316,21 @@ void CPU::execute_i_type(uint32_t instr , uint8_t opcode)
 			uint32_t shift = (addr & 3 * 8);
 			uint32_t mask = 0xFFFFFFFF << ((3 - (addr & 3) * 8));
 			load_delay_val = (reg[rt] & mask) | (value >> shift);
-			load_delay_reg = rt;
-
-			break;
-		}
-	case(0x28): break; //SB
-
+			load_delay_reg = rt;	
+		}break;
+	case(0x28): ; //SB
+	{
 		uint32_t addr = reg[rs] + static_cast<int16_t>(immed & 0xFFFF);
 		memory->write16(addr, reg[rt] & 0xFF);
-
-	case(0x29): break; //SH
-
+	}break;
+	case(0x29): //SH
+	{
 		uint32_t addr = reg[rs] + static_cast<int16_t>(immed & 0xFFFF);
 		if (validHalfWord(addr, Exception::AddressErrorStore))
 		{
-			memory->write16(addr, reg[rt]&0xFFFF);
-		}break;
+			memory->write16(addr, reg[rt] & 0xFFFF);
+		}
+	}break;
 
 	case(0x2A): //SWL
 		{
@@ -348,14 +348,14 @@ void CPU::execute_i_type(uint32_t instr , uint8_t opcode)
 			memory->write32(addr, reg[rt]);
 		}break;
 	}
-	case(0x2E): break; //SWR
+	case(0x2E):  //SWR
 	{
 		uint32_t addr = reg[rs] + static_cast<int16_t>(immed & 0xFFFF);
 		uint32_t shift = (addr & 0x3) << 3;
 		uint32_t mem = memory->read32((addr & ~0x3));
 		mem = (mem & ~(0xFFFFFFFF >> (24 - shift))) | (reg[rt] >> (24 - shift));
 		memory->write32((addr & ~0x3), mem);
-	}
+	}break;
 	case(0x30): break; //LWC0
 	case(0x31): break; //LWC1
 	case(0x32): break; //LWC2
@@ -380,7 +380,7 @@ void CPU::execute_j_type(uint32_t instr, uint8_t opcode)
 	//001000 01001010000000000001100100
 	//opcode       immediate
 
-	uint8_t immed = (instr) & 0b11111111111111111111111111;
+	uint32_t immed = (instr) & 0b11111111111111111111111111;
 
 	// this can only be J or JAL
 
@@ -388,15 +388,15 @@ void CPU::execute_j_type(uint32_t instr, uint8_t opcode)
 	//000011 01001010000000000001100100 0x03 JAL
 
 	
-	if (opcode & 0x1) // checks odd bit (JAL)
+	if (opcode == 0x03) // JAL
 	{
-		load_delay_reg = 32;
+		load_delay_reg = 31;
 		load_delay_val = nextPc;
-		nextPc = nextPc & 0xF0000000 | ((static_cast<int32_t>(immed)) << 2);
+		nextPc = (pc & 0xF0000000) | (immed << 2); 
 	}
-	else // J type
+	else // J
 	{
-		nextPc = nextPc & 0xF0000000 | ((static_cast<int32_t>(immed)) << 2);
+		nextPc = (pc & 0xF0000000) | (immed << 2);  
 	}
 
 }
@@ -425,6 +425,10 @@ int CPU::step()
 
 	pc = nextPc;
 	nextPc += 4;
+
+	//#ifdef DEBUG
+	printf("PC: 0x%08X | Opcode: 0x%08X\n", pc, opcode);
+	//#endif
 
 	decode(opcode); // this also executes it
 
